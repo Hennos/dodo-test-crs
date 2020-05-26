@@ -103,9 +103,13 @@ function getFloorPlanTransformation({
   sizeFloorPlan,
   pixelMeterRobotMap,
 }) {
-  const [scaleMeterRobotMapY, scaleMeterRobotMapX] = [
-    (sizeRobotMap.y / sizeFloorPlan.y) * pixelMeterRobotMap,
-    (sizeRobotMap.x / sizeFloorPlan.x) * pixelMeterRobotMap,
-  ];
-  return new L.Transformation(scaleMeterRobotMapX, 0, scaleMeterRobotMapY, 0);
+  const meterCoordinatesScale = sizeRobotMap
+    .unscaleBy(sizeFloorPlan)
+    .multiplyBy(pixelMeterRobotMap);
+  return new L.Transformation(
+    meterCoordinatesScale.x,
+    0,
+    meterCoordinatesScale.y,
+    0
+  );
 }
