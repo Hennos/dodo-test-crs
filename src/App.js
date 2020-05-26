@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import L from "leaflet";
-import { Map, ImageOverlay, Marker, Popup } from "react-leaflet";
+import { Map, ImageOverlay, FeatureGroup, Marker, Popup } from "react-leaflet";
+
+import PointMarker from "./PointMarker";
 
 import floorPlan from "./floorPlan.jpg";
 
@@ -16,39 +18,46 @@ L.Icon.Default.mergeOptions({
 
 export default App;
 
-// L.CRS.Floor = L.extend({}, L.CRS.Simple, {
-//   projection: L.Projection.LonLat,
-//   transformation: new L.Transformation(20, 10, 20, 10),
-//   scale: function (zoom) {
-//     return Math.pow(2, zoom);
-//   },
-// });
-
-const sizePlan = { height: 975, width: 2560 };
-const sizeRobotMap = { height: 384, width: 640 };
-const robotMapOrigin = [261, 181];
+const sizeFloorPlan = L.point(2560, 975);
+const sizeRobotMap = L.point(640, 384);
 const pixelMeterRobotMap = 0.05;
+const robotMapOrigin = L.point(1.51, 9.67);
 
-const FloorTransformation = getFloorTransformation({
+const FloorPlanTransformation = getFloorPlanTransformation({
+  sizeFloorPlan,
   sizeRobotMap,
-  sizePlan,
   robotMapOrigin,
   pixelMeterRobotMap,
 });
 
-const bounds = [
-  [0, 0],
-  [sizePlan.height, sizePlan.width],
+const fromPixelToMeterPoint = (point) =>
+  FloorPlanTransformation.transform(point);
+const fromMeterToPixelPoint = (point) =>
+  FloorPlanTransformation.untransform(point);
+
+const meterLeftBottomBoundAngle = robotMapOrigin;
+const meterRightTopBoundAngle = fromPixelToMeterPoint(sizeFloorPlan);
+const meterFloorPlanBounds = [
+  [-meterLeftBottomBoundAngle.x, -meterLeftBottomBoundAngle.y],
+  [
+    meterRightTopBoundAngle.x - meterLeftBottomBoundAngle.x,
+    meterRightTopBoundAngle.y - meterLeftBottomBoundAngle.y,
+  ],
 ];
 
-const getRealPosition = (point) => {
-  return FloorTransformation.transform(point);
-};
-const getPlanPosition = (point) => {
-  return FloorTransformation.untransform(point);
-};
-const roundMeter = (point) => point.multiplyBy(100).floor().divideBy(100);
-const originPoint = getPlanPosition(L.point({ x: 0, y: 0 }));
+L.Projection.RobotCoordinates = L.extend({}, L.CRS.LonLag, {
+  project: ({ lat: meterPointY, lng: meterPointX }) => {
+    return fromMeterToPixelPoint(L.point(meterPointY, meterPointX));
+  },
+  unproject: (point) => {
+    const meterPoint = fromPixelToMeterPoint(point);
+    return L.latLng([meterPoint.x, meterPoint.y]);
+  },
+});
+
+L.CRS.Robot = L.extend({}, L.CRS.Simple, {
+  projection: L.Projection.RobotCoordinates,
+});
 
 function App() {
   const [viewPoint, setViewPoint] = useState(null);
@@ -58,52 +67,26 @@ function App() {
       <Map
         className="dodo-map"
         maxZoom={18}
-        bounds={bounds}
-        maxBounds={bounds}
-        crs={L.CRS.Simple}
+        bounds={meterFloorPlanBounds}
+        maxBounds={meterFloorPlanBounds}
+        crs={L.CRS.Robot}
         onClick={({ latlng }) => {
           setViewPoint(latlng);
         }}
       >
-        <ImageOverlay url={floorPlan} bounds={bounds} />
-        <Marker
-          position={[originPoint.x, originPoint.y]}
-          closeOnClick={false}
-          onAdd={({ target }) => {
-            target.openPopup();
-          }}
-        >
-          <Popup closeButton={false}>Точка отсчёта</Popup>
-        </Marker>
-        {viewPoint && (
+        <ImageOverlay url={floorPlan} bounds={meterFloorPlanBounds} />
+        <FeatureGroup>
           <Marker
-            position={viewPoint}
+            position={[0, 0]}
+            closeOnClick={false}
             onAdd={({ target }) => {
               target.openPopup();
             }}
-            onMove={({ target }) => {
-              target.openPopup();
-            }}
           >
-            <Popup closeButton={false}>
-              {
-                roundMeter(
-                  getRealPosition(
-                    L.point({ x: viewPoint.lat, y: viewPoint.lng })
-                  )
-                ).x
-              }{" "}
-              /{" "}
-              {
-                roundMeter(
-                  getRealPosition(
-                    L.point({ x: viewPoint.lat, y: viewPoint.lng })
-                  )
-                ).y
-              }
-            </Popup>
+            <Popup closeButton={false}>Точка отсчёта</Popup>
           </Marker>
-        )}
+          {viewPoint && <PointMarker point={viewPoint} />}
+        </FeatureGroup>
       </Map>
     </div>
   );
@@ -115,28 +98,14 @@ function App() {
   робота и сколько метров укладывается в одном пикселе карты робота и 
   положение начала координат в системе робота в пикселях.
 */
-function getFloorTransformation({
-  sizeRobotMap = { height: 384, width: 640 },
-  sizePlan = { height: 975, width: 2560 },
-  robotMapOrigin: [robotMapOriginY, robotMapOriginX] = [261, 181],
-  pixelMeterRobotMap = 0.05,
+function getFloorPlanTransformation({
+  sizeRobotMap,
+  sizeFloorPlan,
+  pixelMeterRobotMap,
 }) {
-  const [scaleYRobotMap, scaleXRobotMap] = [
-    sizeRobotMap.height / sizePlan.height,
-    sizeRobotMap.width / sizePlan.width,
+  const [scaleMeterRobotMapY, scaleMeterRobotMapX] = [
+    (sizeRobotMap.y / sizeFloorPlan.y) * pixelMeterRobotMap,
+    (sizeRobotMap.x / sizeFloorPlan.x) * pixelMeterRobotMap,
   ];
-  const [scaleMeterY, scaleMeterX] = [
-    scaleYRobotMap * pixelMeterRobotMap,
-    scaleXRobotMap * pixelMeterRobotMap,
-  ];
-  const [robotMapOriginMeterY, robotMapOriginMeterX] = [
-    robotMapOriginY * scaleMeterY,
-    robotMapOriginX * scaleMeterX,
-  ];
-  return new L.Transformation(
-    scaleMeterY,
-    -robotMapOriginMeterY,
-    scaleMeterX,
-    -robotMapOriginMeterX
-  );
+  return new L.Transformation(scaleMeterRobotMapX, 0, scaleMeterRobotMapY, 0);
 }
